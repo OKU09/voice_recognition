@@ -33,7 +33,7 @@ def submit_job_local(file_paths):
     resp.raise_for_status()
 
     job_id = resp.json()["job_id"]
-    print("✅ Submitted job:", job_id)
+    print("Submitted job:", job_id)
     return job_id
 
 # ---- (3) ステータス確認 ----

@@ -3,70 +3,126 @@ import websockets
 import base64
 import json
 import sounddevice as sd
+import numpy as np
+import io
+import wave
+import sys
 
+<<<<<<< HEAD
 # === (1) HumeのAPIキー ===
 API_KEY = ""  # ←あなたの「Project API Key」をここに！
+=======
+# === 設定 ===
+API_KEY = ""
+HUME_WS_URL = "wss://api.hume.ai/v0/stream/models"
+>>>>>>> dev
 
-# === (2) WebSocketエンドポイント ===
-HUME_WS_URL = f"wss://api.hume.ai/v0/stream/models?api_key={API_KEY}"
-
-# === (3) 音声設定 ===
-SAMPLE_RATE = 16000  # Hume推奨
-CHUNK_DURATION = 0.5  # 秒
+DEVICE_ID = 1  # マイク番号
+CHUNK_DURATION = 1.0  # 1秒ごとに区切る
+SAMPLE_RATE = 16000
 CHUNK_SIZE = int(SAMPLE_RATE * CHUNK_DURATION)
 
-
 async def stream_audio():
-    """
-    マイク入力をHume APIにストリーミングし、
-    感情解析の結果をリアルタイムで受信する。
-    """
-    # WebSocket接続を開く
-    async with websockets.connect(
-        HUME_WS_URL,
-        extra_headers={"Authorization": f"Bearer {API_KEY}"}
-    ) as ws:
-        print("Connected to Hume AI Real-time API")
+    loop = asyncio.get_running_loop()
+    running = True
+    segment_count = 0
 
-        # モデルの設定を送信
-        config = {
-            "models": {
-                "prosody": {},   # 声の抑揚・感情
-                "burst": {},     # 音声の短い特徴
+    try:
+        async with websockets.connect(
+            HUME_WS_URL,
+            extra_headers={"X-Hume-Api-Key": API_KEY}
+        ) as ws:
+            print("=== 接続成功 ===")
+            print("------------------------------------------------")
+
+            models_config = {
+                "prosody": {}, 
+                "burst": {},
             }
-        }
-        await ws.send(json.dumps(config))
-        print("Sent model configuration")
 
-        loop = asyncio.get_running_loop()
+            def callback(indata, frames, time_info, status):
+                if not running: return
+                
+                # 送信中の表示（JSON表示の邪魔にならないよう控えめに）
+                # volume = np.linalg.norm(indata) / len(indata) * 1000
+                # sys.stdout.write(".") 
+                # sys.stdout.flush()
 
-        # 音声入力ストリームを開く
-        def callback(indata, frames, time_info, status):
-            if status:
-                print(status)
-            audio_bytes = indata.tobytes()
-            audio_b64 = base64.b64encode(audio_bytes).decode("utf-8")
-            payload = json.dumps({"data": audio_b64})
-            
-            asyncio.run_coroutine_threadsafe(ws.send(payload), loop)
+                wav_buffer = io.BytesIO()
+                with wave.open(wav_buffer, 'wb') as wav_file:
+                    wav_file.setnchannels(1)
+                    wav_file.setsampwidth(2)
+                    wav_file.setframerate(SAMPLE_RATE)
+                    wav_file.writeframes(indata.tobytes())
+                
+                wav_bytes = wav_buffer.getvalue()
+                audio_b64 = base64.b64encode(wav_bytes).decode("utf-8")
+                
+                payload = json.dumps({"data": audio_b64, "models": models_config})
+                try:
+                    asyncio.run_coroutine_threadsafe(ws.send(payload), loop)
+                except RuntimeError:
+                    pass
 
-        with sd.InputStream(samplerate=SAMPLE_RATE, channels=1, callback=callback):
-            print("Listening... Press Ctrl+C to stop.")
+            with sd.InputStream(
+                samplerate=SAMPLE_RATE,
+                channels=1,
+                dtype="int16",
+                blocksize=CHUNK_SIZE,
+                device=DEVICE_ID,
+                callback=callback
+            ):
+                while running:
+                    try:
+                        message = await ws.recv()
+                        data = json.loads(message)
 
-            # サーバーからのメッセージを逐次受信
-            try:
-                while True:
-                    message = await ws.recv()
-                    data = json.loads(message)
+                        if "error" in data:
+                            print(f"\nError: {data['error']}")
+                            continue
 
-                    # 結果部分を表示
-                    if "models" in data:
-                        emotions = data["models"].get("prosody", {}).get("predictions", [])
-                        if emotions:
-                            print(json.dumps(emotions[-1], indent=2, ensure_ascii=False))
-            except KeyboardInterrupt:
-                print("\n Stopped streaming.")
+                        # === ターミナル表示処理 ===
+                        if "prosody" in data:
+                            predictions = data["prosody"].get("predictions", [])
+                            if predictions:
+                                # 時間計算
+                                begin_time = segment_count * CHUNK_DURATION
+                                end_time = (segment_count + 1) * CHUNK_DURATION
+                                segment_count += 1
 
+                                emotions_raw = predictions[0]["emotions"]
+                                
+                                # スコア順にソートして、上位10個だけ取り出す
+                                sorted_emotions = sorted(emotions_raw, key=lambda x: x["score"], reverse=True)
+                                top_10_emotions = sorted_emotions[:10]
+
+                                # 表示用のオブジェクトを作成
+                                display_data = {
+                                    "time": {
+                                        "begin": round(begin_time, 1),
+                                        "end": round(end_time, 1)
+                                    },
+                                    "emotions_top10": [
+                                        {"name": e["name"], "score": round(e["score"], 5)} 
+                                        for e in top_10_emotions
+                                    ]
+                                }
+
+                                # JSONとして整形して表示
+                                print("\n" + json.dumps(display_data, indent=2, ensure_ascii=False))
+
+                    except websockets.exceptions.ConnectionClosed:
+                        print("\nConnection closed by server.")
+                        break
+
+    except Exception as e:
+        print(f"\nAn error occurred: {e}")
+    finally:
+        running = False
+        print("\n終了しました")
 
 if __name__ == "__main__":
-    asyncio.run(stream_audio())
+    try:
+        asyncio.run(stream_audio())
+    except KeyboardInterrupt:
+        pass

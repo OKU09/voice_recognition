@@ -1,6 +1,6 @@
 import requests
 
-API_KEY = "flNbQ4RkpfsxlPJlqg0GLvKnb69pUepBtiwu5vYgoGmJZHnz"
+API_KEY = ""
 url = "https://api.hume.ai/v0/models"
 
 res = requests.get(url, headers={"Authorization": f"Bearer {API_KEY}"})
