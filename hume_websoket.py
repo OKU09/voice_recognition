@@ -9,7 +9,7 @@ import wave
 import sys
 
 # === 設定 ===
-API_KEY = "md9qaijjQHyURDgs2fGGrbCOJc9L5qzD5wU3y2PO54lgPWhy"
+API_KEY = ""
 HUME_WS_URL = "wss://api.hume.ai/v0/stream/models"
 
 DEVICE_ID = 1  # マイク番号
