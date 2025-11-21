@@ -6,10 +6,9 @@ import sounddevice as sd
 import numpy as np
 import io
 import wave
-import sys
 
 # === 設定 ===
-API_KEY = ""
+API_KEY = "" # APIキーを入力してください
 HUME_WS_URL = "wss://api.hume.ai/v0/stream/models"
 
 DEVICE_ID = 1  # マイク番号
@@ -37,11 +36,6 @@ async def stream_audio():
 
             def callback(indata, frames, time_info, status):
                 if not running: return
-                
-                # 送信中の表示（JSON表示の邪魔にならないよう控えめに）
-                # volume = np.linalg.norm(indata) / len(indata) * 1000
-                # sys.stdout.write(".") 
-                # sys.stdout.flush()
 
                 wav_buffer = io.BytesIO()
                 with wave.open(wav_buffer, 'wb') as wav_file:
