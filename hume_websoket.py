@@ -9,14 +9,8 @@ import wave
 from flask import Flask, jsonify
 import threading
 
-<<<<<<< HEAD
 # === (1) HumeのAPIキー ===
 API_KEY = ""  # ←あなたの「Project API Key」をここに！
-=======
-# === 設定 ===
-API_KEY = "1D46K9RzoijBjfFj3fPlTM82CmexgJ4Yk45GHsMIrGS4J0sU" # そのまま使用します
-HUME_WS_URL = "wss://api.hume.ai/v0/stream/models"
->>>>>>> dev
 
 DEVICE_ID = 1  # マイク番号
 CHUNK_DURATION = 1.0  # 1秒ごとに区切る
