@@ -175,30 +175,6 @@ async def stream_audio():
                                     ]
                                 }
                                 segment_count += 1
-                            #predictions = data["prosody"].get("predictions", [])
-                            #if predictions:
-                                # 時間計算
-                                #begin_time = segment_count * CHUNK_DURATION
-                                #end_time = (segment_count + 1) * CHUNK_DURATION
-                                #segment_count += 1
-
-                                #emotions_raw = predictions[0]["emotions"]
-                                
-                                # スコア順にソートして、上位10個だけ取り出す
-                                #sorted_emotions = sorted(emotions_raw, key=lambda x: x["score"], reverse=True)
-                                #top_10_emotions = sorted_emotions[:10]
-
-                                # 表示用のオブジェクトを作成
-                                #display_data = {
-                                    #"time": {
-                                        #"begin": round(begin_time, 1),
-                                        #"end": round(end_time, 1)
-                                    #},
-                                    #"emotions_top10": [
-                                        #{"name": e["name"], "score": round(e["score"], 5)} 
-                                        #for e in top_10_emotions
-                                    #]
-                                #}
 
                                 # JSONとして整形して表示
                                 print("\n" + json.dumps(display_data, indent=2, ensure_ascii=False))
