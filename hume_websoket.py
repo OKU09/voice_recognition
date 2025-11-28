@@ -9,8 +9,9 @@ import wave
 from flask import Flask, jsonify
 import threading
 
-# === (1) HumeのAPIキー ===
-API_KEY = ""  # ←あなたの「Project API Key」をここに！
+# === 設定 ===
+API_KEY = "" # APIキー
+HUME_WS_URL = "wss://api.hume.ai/v0/stream/models"
 
 DEVICE_ID = 1  # マイク番号
 CHUNK_DURATION = 1.0  # 1秒ごとに区切る
@@ -20,8 +21,7 @@ CHUNK_SIZE = int(SAMPLE_RATE * CHUNK_DURATION)
 # === Flask API 設定 ===
 app = Flask(__name__)
 
-# 最新の感情データを保存するグローバル変数（スレッド間で共有）
-# 初期値を入れておくと、サーバー起動確認がしやすくなります
+# 最新の感情データを保存するグローバル変数
 latest_emotion_data = {"status": "waiting_for_audio", "message": "まだ音声データを受信していません"}
 
 @app.route("/emotion/latest")
@@ -33,59 +33,64 @@ def run_flask():
     """Flaskサーバーを起動する関数"""
     app.run(host="0.0.0.0", port=5000, debug=False, use_reloader=False)
 
-# === プルチックの基本8感情 ===
-PLUTCHIK_EMOTIONS = [
-    "Joy", "Trust", "Fear", "Surprise", 
-    "Sadness", "Disgust", "Anger", "Anticipation"
+
+# === ターゲット感情（指定順序） ===
+# Anger, Disgust, Fear, Happiness, Sadness, Surprise, Neutral
+TARGET_EMOTIONS = [
+    "Anger", "Disgust", "Fear", "Happiness", "Sadness", "Surprise", "Neutral"
 ]
 
+# === 感情マッピング定義 ===
+# Joy -> Happiness
+# Trust, Anticipation -> Neutral (または文脈によりHappiness等へ統合)
+# 以前の「3要素は-0.2して...」の結果をベースに、7感情へ再配分しています。
 EMOTION_MAP = {
-    "Admiration": {"Trust":1.0},
-    "Adoration": {"Trust":1.0},
-    "Aesthetic Appreciation": {"Joy":0.4, "Surprise":0.3, "Anticipation":0.3},
-    "Amusement": {"Joy":1.0},
+    "Admiration": {"Neutral":1.0}, # Trust -> Neutral
+    "Adoration": {"Neutral":1.0}, # Trust -> Neutral
+    "Aesthetic Appreciation": {"Happiness":0.2, "Surprise":0.1, "Neutral":0.7}, # Joy->Happy, Ant->Neu
+    "Amusement": {"Happiness":1.0}, # Joy->Happy
     "Anger": {"Anger":1.0},
-    "Anxiety": {"Fear":0.5, "Anticipation":0.5},
+    "Anxiety": {"Fear":0.5, "Neutral":0.5}, # Ant->Neu
     "Awe": {"Fear":0.5, "Surprise":0.5},
     "Awkwardness": {"Fear":1.0},
     "Boredom": {"Disgust":0.5, "Anger":0.5},
-    "Calmness": {"Fear":0.4, "Sadness":0.3, "Anticipation":0.3},
-    "Concentration": {"Anticipation":1.0},
+    "Calmness": {"Fear":0.2, "Sadness":0.1, "Neutral":0.7}, # Ant->Neu
+    "Concentration": {"Neutral":1.0}, # Ant->Neu
     "Confusion": {"Fear":0.5, "Surprise":0.5},
-    "Contemplation": {"Trust":0.5, "Anticipation":0.5},
-    "Contentment": {"Joy":1.0},
-    "Craving": {"Anticipation":1.0},
-    "Desire": {"Anticipation":1.0},
-    "Determination": {"Joy":0.5, "Anticipation":0.5},
+    "Contemplation": {"Neutral":1.0}, # Trust+Ant -> Neu
+    "Contentment": {"Happiness":1.0}, # Joy->Happy
+    "Craving": {"Neutral":1.0}, # Ant->Neu
+    "Desire": {"Neutral":1.0}, # Ant->Neu
+    "Determination": {"Happiness":0.5, "Neutral":0.5}, # Joy->Happy, Ant->Neu
     "Disappointment": {"Surprise":0.5, "Sadness":0.5},
     "Disgust": {"Disgust":1.0},
     "Distress": {"Sadness":0.5, "Disgust":0.5},
-    "Doubt": {"Fear":0.3, "Disgust":0.4, "Anticipation":0.3},
+    "Doubt": {"Fear":0.1, "Disgust":0.2, "Neutral":0.7}, # Ant->Neu
     "Embarrassment": {"Fear":0.5, "Disgust":0.5},
     "Empathic Pain": {"Sadness":0.5, "Disgust":0.5},
-    "Entrancement": {"Joy":0.3, "Trust":0.4, "Anticipation":0.3},
+    "Entrancement": {"Happiness":0.1, "Neutral":0.9}, # Joy->Happy, Trust+Ant -> Neu
     "Envy": {"Sadness":0.5, "Anger":0.5},
-    "Excitement": {"Joy":1.0},
+    "Excitement": {"Happiness":1.0}, # Joy->Happy
     "Fear": {"Fear":1.0},
-    "Guilt": {"Joy":0.5, "Fear":0.5},
+    "Guilt": {"Happiness":0.5, "Fear":0.5}, # Joy->Happy
     "Horror": {"Fear":1.0},
-    "Interest": {"Joy":0.5, "Anticipation":0.5},
-    "Joy": {"Joy":1.0},
-    "Love": {"Joy":0.5, "Trust":0.5},
-    "Nostalgia": {"Trust":0.5, "Sadness":0.5},
+    "Interest": {"Happiness":0.5, "Neutral":0.5}, # Joy->Happy, Ant->Neu
+    "Joy": {"Happiness":1.0}, # Joy->Happy
+    "Love": {"Happiness":0.5, "Neutral":0.5}, # Joy->Happy, Trust->Neu
+    "Nostalgia": {"Neutral":0.5, "Sadness":0.5}, # Trust->Neu
     "Pain": {"Fear":0.5, "Disgust":0.5},
-    "Pride": {"Anger":0.5, "Joy":0.5},
-    "Realization": {"Joy":0.3, "Trust":0.3, "Anticipation":0.4},
-    "Relief": {"Trust":1.0},
-    "Romance": {"Joy":1.0},
+    "Pride": {"Anger":0.5, "Happiness":0.5}, # Joy->Happy
+    "Realization": {"Happiness":0.1, "Neutral":0.9}, # Joy->Happy, Trust+Ant -> Neu
+    "Relief": {"Neutral":1.0}, # Trust->Neu
+    "Romance": {"Happiness":1.0}, # Joy->Happy
     "Sadness": {"Sadness":1.0},
-    "Satisfaction": {"Joy":1.0},
+    "Satisfaction": {"Happiness":1.0}, # Joy->Happy
     "Shame": {"Fear":0.5, "Disgust":0.5},
     "Surprise (negative)": {"Surprise":1.0},
     "Surprise (positive)": {"Surprise":1.0},
     "Sympathy": {"Surprise":0.5, "Sadness":0.5},
     "Tiredness": {"Sadness":1.0},
-    "Triumph": {"Joy":1.0},
+    "Triumph": {"Happiness":1.0}, # Joy->Happy
 }
 
 async def stream_audio():
@@ -153,7 +158,8 @@ async def stream_audio():
                                 emotions_raw = predictions[0]["emotions"]
                                 
                                 # --- 集計処理開始 ---
-                                plutchik_scores = {k: 0.0 for k in PLUTCHIK_EMOTIONS}
+                                # 指定の7感情の入れ物を用意
+                                emotion_scores = {k: 0.0 for k in TARGET_EMOTIONS}
 
                                 for hume_emotion in emotions_raw:
                                     name = hume_emotion["name"]
@@ -161,33 +167,31 @@ async def stream_audio():
 
                                     if name in EMOTION_MAP:
                                         mapping = EMOTION_MAP[name]
-                                        for p_name, weight in mapping.items():
-                                            plutchik_scores[p_name] += score * weight
+                                        for target_name, weight in mapping.items():
+                                            if target_name in emotion_scores:
+                                                emotion_scores[target_name] += score * weight
 
                                 # --- パーセンテージ計算 ---
-                                total_score = sum(plutchik_scores.values())
+                                total_score = sum(emotion_scores.values())
                                 if total_score == 0:
                                     total_score = 1.0 
 
-                                # 表示用データ作成（降順ソート）
-                                sorted_plutchik = sorted(
-                                    plutchik_scores.items(), 
-                                    key=lambda x: x[1], 
-                                    reverse=True
-                                )
+                                # 表示用データ作成（固定順序）
+                                # 指定された順序でリストを作成します
+                                formatted_emotions = [
+                                    {
+                                        "name": name,
+                                        "percent": f"{round((emotion_scores[name] / total_score) * 100, 1)}%"
+                                    }
+                                    for name in TARGET_EMOTIONS
+                                ]
 
                                 display_data = {
                                     "time": {
                                         "begin": round(segment_count * CHUNK_DURATION, 1),
                                         "end": round((segment_count + 1) * CHUNK_DURATION, 1)
                                     },
-                                    "plutchik_emotions": [
-                                        {
-                                            "name": name,
-                                            "percent": f"{round((score / total_score) * 100, 1)}%"
-                                        } 
-                                        for name, score in sorted_plutchik
-                                    ]
+                                    "emotions": formatted_emotions
                                 }
 
                                 # 【更新】グローバル変数を更新
